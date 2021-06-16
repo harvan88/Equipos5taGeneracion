@@ -1,0 +1,312 @@
+// @ts-nocheck
+// Función que invoca el menú creado para la hoja de cálculo
+function onOpen(){
+  crearMenu();
+}
+// Función que crea un menú creado para la hoja de cálculo
+
+function crearMenu(){
+  const miMenu = SpreadsheetApp.getUi().createMenu("Aciones");
+  const miMenu2 = SpreadsheetApp.getUi().createMenu("Cuota");
+  miMenu2
+    .addItem("Cuota de correo actual", "verificacionCuota")
+    .addToUi()
+  miMenu
+    .addItem("📧 Enviar cotización a contacto activo","enviarMailActual")
+    .addItem("📨 Enviar cotización a varios contactos","cotizacionesMasivas")
+    .addItem("⏱ Importar Facebook","copiaDeFacebook")
+    .addToUi()
+}
+function verificacionCuota(){
+  var cuota = MailApp.getRemainingDailyQuota();
+  if (cuota == 0){
+    SpreadsheetApp.getUi().alert("Se terminó la cuota diaria de correos. No se pueden enviar más mensajes desde esta hoja de cálculo");
+  }else {
+    SpreadsheetApp.getUi().alert("Quedan disponibles "+cuota);
+  }
+  
+  Logger.log(cuota)
+
+  return cuota
+}
+
+function enviarMailActual(){                                                                   // Variables de configuración
+  
+  const nombreBase = "Gestor de correos"
+  const filaEncabezado = 1;
+  const colNombre = 2;
+  const colApellido = 3;
+  const colCorreo = 4;
+  const colMarca=6;
+  const colCuotaDeCorreo=10;
+  const colEscogeCorreo=11;
+  const colConfirmacionCorreoEnviado=12;
+  const colFechaEnviado=13;
+  const colCorreoProgramado=14;
+  var fechaHoy=new Date();
+  var cuota = MailApp.getRemainingDailyQuota();
+
+  const mensajeAlertaCorreo= "No hay correo válido. El correo no se pudo enviar"
+  const mensajeAlertaCorreoEscogido= "Debe escoger un correo de la lista de cotizaciones"
+  const mensajeEnviado= "El correo fue enviado exitosamente quedan "+cuota+" correos disponibles para el día de hoy"
+
+  const libro = SpreadsheetApp.getActiveSpreadsheet();
+  var hoja = libro.getActiveSheet();
+  
+  
+
+ 
+  if(hoja.getName() == nombreBase){
+    var celdaActiva = hoja.getActiveCell();
+    var filaActiva = celdaActiva.getRow(); 
+    
+    if(filaActiva > filaEncabezado && filaActiva<hoja.getLastRow()+2){
+      var correo = hoja.getRange(filaActiva,colCorreo).getValue();
+      var nombre = hoja.getRange(filaActiva,colNombre).getValue();
+      var marca = hoja.getRange(filaActiva,colMarca).getValue();
+      var cotizacionEscogidaIndice = hoja.getRange(filaActiva,colEscogeCorreo).getValue()
+      const mensajeHtml = creaEmailDeCotizacion(cotizacionEscogidaIndice);
+      var asunto = creaAsunto(cotizacionEscogidaIndice)
+      /*var nombreCotizacion=hoja.getRange(filaActiva,colEscogeCorreo).getValue();
+      var asuntoB = 'Presupuesto '+nombreCotizacion+', Pensaste en GNC? Empezá a ahorrar hoy mismo, fináncialo en cuotas en 12 o 18 cuotas'
+      var asunto = asuntoB //Es el cuerpo del mensaje
+          .replace("{{nombre}}",nombre); 
+      //var correoEscogido= hoja.getRange(filaActiva,colEscogeCorreo).getValue();*/
+      
+      if(cuota==0){
+        SpreadsheetApp.getUi().alert("Se terminó la cuota diaria de correos. No se pueden enviar más mensajes desde esta hoja de cálculo");
+      }else if(correo == ""){                                                                  
+          SpreadsheetApp.getUi().alert(mensajeAlertaCorreo);
+        }else
+         if(cotizacionEscogidaIndice == ""){
+            SpreadsheetApp.getUi().alert(mensajeAlertaCorreoEscogido);
+        }else{   
+
+            GmailApp.sendEmail(correo,asunto,'', {name: asunto,htmlBody: mensajeHtml} ); //***       //Envia correo                   
+            
+            //config.getRange('B3').setValue(cuota);
+            hoja.getRange(filaActiva,colConfirmacionCorreoEnviado).setValue("OK")
+            hoja.getRange(filaActiva,colFechaEnviado).setValue(fechaHoy)            
+            var fechaCotizacionEnviada = fechaHoy
+            Logger.log(fechaCotizacionEnviada)
+            var primerCorreoAutoProgramado = sumarDias(fechaCotizacionEnviada,3)
+            hoja.getRange(filaActiva,colCorreoProgramado).setValue(primerCorreoAutoProgramado)
+            SpreadsheetApp.getUi().alert(mensajeEnviado);
+          }
+
+    }else{
+        SpreadsheetApp.getUi().alert("Debe estar situado sobre uno de sus contactos para enviar el correo");
+    }//Cierre if filaEncabezado
+  }else{
+    SpreadsheetApp.getUi().alert("Debe estar en la pestaña "+ nombreBase+" para enviar el correo");
+  }//Cierre if pestañaActiva
+
+
+}
+
+
+function cotizacionesMasivas(){                                                                         //Función para envio de cotizaciones masivas
+  //Configuración
+  const nombreBase= "Gestor de correos"
+  const nombreConfig= "Configuración"
+  const colNombre = 2;
+  const colApellido = 3;
+  const colCorreo = 4;
+  const colFecha = 5;
+  const colMarca=6;
+  const colModelo=7;
+  const colAnio=8;
+  const colCuota=9;
+  const colEscogerCotizacion=11
+  const colConfirmacionCorreoEnviado=12;
+  const colFechaEnviado=13;
+  const colCorreoProgramado=14;
+  var fechaHoy=new Date();
+  //Conecta con la hoja
+  var libro = SpreadsheetApp.getActiveSpreadsheet();
+  var hoja = libro.getSheetByName(nombreBase);
+  var celdaActiva = hoja.getActiveCell();
+  var filaActiva = celdaActiva.getRow();                                                          //comprovador de celdas variables
+  
+  var contactos = hoja.getRange(2,1,hoja.getLastRow()-1,colCorreoProgramado).getValues();
+  var config = libro.getSheetByName(nombreConfig);
+  var cont=0;
+  var nombre = hoja.getRange(filaActiva,colNombre).getValue();
+  var marca = hoja.getRange(filaActiva,colMarca).getValue();
+      
+  var cuota = MailApp.getRemainingDailyQuota();
+  Logger.log(cuota)
+  if(cuota<=0){
+    SpreadsheetApp.getUi().alert("Se terminó la cuota diaria de correos. No se pueden enviar más mensajes desde esta hoja de cálculo");
+  }else{
+    
+    contactos.some(function (fila, index,array){
+    
+    var fechaHoy=new Date()
+    if (fila[colConfirmacionCorreoEnviado-1]!="OK"){
+      
+
+      
+      if (fila[colEscogerCotizacion-1]===""){
+        
+        SpreadsheetApp.getUi().alert('Asegurate que todas las cotizaciones están seleccionadas para poder continuar')
+        return ;
+      
+      }else
+        
+        if (fila[colEscogerCotizacion-1]==="Cotización por otro medio"){
+        
+          SpreadsheetApp.getUi().alert('La cotizaciones seleccionadas como "Cotizaciones por otro medio" no fueron enviadas')
+          return ;
+      
+        }else{
+
+          cont++
+          var mensajeHtml = creaEmailDeCotizacion(fila[colEscogerCotizacion-1]);
+          var nombre = fila[1]
+          var apellido = fila[2]
+          var correo = fila[3]
+          var marca = fila[5]
+          var cotizacion = fila[colEscogerCotizacion-1]
+          var asunto = creaAsunto(fila[colEscogerCotizacion-1])
+
+          //var asuntoB = 'Presupuesto Equipo '+cotizacion+', Pensaste en GNC? Empezá a ahorrar hoy mismo, fináncialo en 12 o 18 cuotas '
+          //var asunto = asuntoB
+         // Logger.log(mensajeHtml)
+          Logger.log(asunto)
+          try{
+            
+            GmailApp.sendEmail(correo,asunto,'', {name: asunto,htmlBody: mensajeHtml} );
+            var fechaHoy=new Date()
+            fila[colConfirmacionCorreoEnviado-1] = "OK"
+            fila[colFechaEnviado-1]=fechaHoy
+            //array [index] = ['','','','','','','','','','',fila[colEscogerCotizacion-1],'OK',fechaHoy,fila[colCorreoProgramado-1]]
+            var primerCorreoAutoProgramado = sumarDias(new Date(),3)
+            fila[colCorreoProgramado-1]=primerCorreoAutoProgramado   
+          }catch (e){
+            SpreadsheetApp.getUi().alert("El correo electrónico "+correo+" es errado por favor verifíquelo "+e)
+            cont--
+          }
+          //***       //Envia correo  
+          
+          
+        }   
+      
+    }
+    //array [index] = ['','','','','','','','','','',fila[colEscogerCotizacion-1],'OK',fila[colFechaEnviado-1],fila[colCorreoProgramado-1]]
+  } )
+  }
+  
+
+  
+  /*contactos.forEach(function (fila, index,array){
+      array [index] = ['','','','','','','','','','',fila[colEscogerCotizacion-1],fila[colConfirmacionCorreoEnviado-1],fila[colFechaEnviado-1],fila[colCorreoProgramado-1]]
+      })*/
+  hoja.getRange(2,1,hoja.getLastRow()-1,colCorreoProgramado).setValues(contactos);
+  Logger.log(contactos)
+
+    if(cont==0){
+
+      /*contactos.forEach(function (fila, index,array){
+      array [index] = ['','','','','','','','','','',fila[colEscogerCotizacion-1],fila[colConfirmacionCorreoEnviado-1],fila[colFechaEnviado-1],fila[colCorreoProgramado-1]]
+      })*/
+      if(cuota<=0){
+        SpreadsheetApp.getUi().alert("Debes enviar los correos restantes desde Gmail");
+      }else{
+        hoja.getRange(2,1,hoja.getLastRow()-1,colCorreoProgramado).setValues(contactos);
+        SpreadsheetApp.getUi().alert("No se envió ningún mensaje. Asegurese de que hayan correos pendientes en la columna 'Correos enviados'");
+      }
+      
+    }else{
+      SpreadsheetApp.getUi().alert("Se enviaron exitosamente "+cont+" correos. Quedan disponibles "+cuota+" más.");
+    }
+}
+
+function creaAsunto(cotizacionEscogidaIndice){
+  const nombreBase="Gestor de correos"
+  const hojaCotizaciones="Correos de cotización"
+  const libro = SpreadsheetApp.getActiveSpreadsheet();
+  var hoja = libro.getActiveSheet();
+  var config = libro.getSheetByName(hojaCotizaciones);
+  var colAsunto=6
+  var asunto = ""
+  
+  var datosCotizacion = config.getRange(2,1,config.getLastRow()-1,config.getLastColumn()).getValues()
+  
+  if(hoja.getName() == nombreBase){
+   
+    datosCotizacion.forEach(function(datos){
+     
+      var asuntoEscogido = datos[colAsunto-1]
+      var fechaHoy=new Date()
+      var mes = fechaHoy.getMonth()
+      var anio = fechaHoy.getFullYear()
+      
+       
+      if(datos[0]==cotizacionEscogidaIndice){
+       asunto = asuntoEscogido  
+        }
+    })
+
+
+  var asunto = asunto
+  } 
+return asunto
+}
+
+function creaEmailDeCotizacion(cotizacionEscogidaIndice){                                      // Crea email de cotización
+  const nombreBase="Gestor de correos"
+  const hojaCotizaciones="Correos de cotización"
+  const libro = SpreadsheetApp.getActiveSpreadsheet();
+  var hoja = libro.getActiveSheet();
+  var config = libro.getSheetByName(hojaCotizaciones);
+  const colCotizacion=2
+  const colComplemento =3
+  var colVendedor=4
+  var colCargo=5
+  var mensaje = ""
+
+  var datosCotizacion = config.getRange(2,1,config.getLastRow()-1,config.getLastColumn()).getValues()
+  
+  
+  if(hoja.getName() == nombreBase){
+   
+    datosCotizacion.forEach(function(datos){
+      var urlCotizacion = datos[colCotizacion-1]
+      var urlComplemento = datos[colComplemento-1]
+      var nombreVendedor = datos[colVendedor-1]
+      var nombreCargo = datos[colCargo-1]
+    
+    
+        
+        if(datos[0]==cotizacionEscogidaIndice){
+          var datosPlantilla=[urlCotizacion,urlComplemento,nombreVendedor,nombreCargo]
+               
+          if(cotizacionEscogidaIndice=="No clasifica"){
+            var html = HtmlService.createTemplateFromFile('No clasifica')
+            html.datosPlantilla = datosPlantilla
+            mensaje = html.evaluate().getContent()
+          }else{
+              //var datosPlantilla=[urlCotizacion,urlComplemento,nombreVendedor,nombreCargo]
+              var html = HtmlService.createTemplateFromFile('cotizacion')
+              html.datosPlantilla = datosPlantilla
+              mensaje = html.evaluate().getContent()
+            }
+        }
+    
+    })
+    
+  var mensaje = mensaje
+  
+
+  }
+return mensaje
+}
+// Función enviar correo
+function enviarMail(correo,asunto,mensaje,mensajeHtml,nombreCorreo){
+  GmailApp.sendEmail(correo, asunto, mensaje,{name:nombreCorreo, htmlBody:mensajeHtml});
+}
+function sumarDias(fecha, dias){
+  fecha.setDate(fecha.getDate() + dias);
+  return fecha;
+}
